@@ -1,0 +1,184 @@
+---
+title: "R_Ex.1"
+author: "Anastasia Koval"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r, warning=FALSE, message=FALSE}
+# install.packages('semTools')
+library(lavaan)
+library(semPlot)
+library(semTools)
+library(lavaanPlot)
+```
+
+
+# The task 
+
+Using data from the seminar (pirls_lesson.xlsx) check if there is a common construct "motivation" by taking the scales for internal (enjoy_r1 - enjoy_r6) and instrumental motivation (reason1 - reason6)
+
+## Before you start checking, I'd like to say that I'm a free rider in this course (вольнослушатель), so it isn't obligatory for you to check my works. If you don't mind, I still want to do the tasks for practice but if it disturbs you, I will not send the tasks here (just do it for myself on my laptop). Please let me know, it it disturbs you. 
+
+```{r}
+pirls <- rio::import("/Users/anastasiakoval/Downloads/Master programme/DatAn/DatAn Advanced/pirls_lesson.xlsx")
+```
+
+Let's look at the variables
+
+```{r}
+summary(subset(pirls, select=c(enjoy_r1:enjoy_r6,reason1:reason6)))
+table(pirls$enjoy_r2)
+hist(pirls$enjoy_r2)
+table(pirls$reason6)
+hist(pirls$reason6)
+```
+
+# 1. Model estimation
+
+```{r}
+model_motivation <- "
+internal_motivation =~ enjoy_r2 + enjoy_r1 + enjoy_r3 + enjoy_r4 + enjoy_r5 + enjoy_r6
+instrumental_motivation     =~ reason1 + reason2 + reason3 + reason4 + reason5 + reason6"
+
+# fit_motivation_1 <- cfa(model_motivation, pirls, std.lv = TRUE) # here ML is used
+
+# summary(fit_motivation_1, std=T)
+
+fit_motivation_1 <- cfa(model_motivation, data=pirls, std.lv=TRUE, estimator="DWLS", verbose=TRUE) # Here another estimator is used as the data did not have normal distribution
+
+summary(fit_motivation_1, fit.measures= TRUE, standardized=TRUE)
+
+```
+If we look at these items in internal motivation, we can see that they are reversed as they have negative loadings:  
+1) enjoy_r1 (I only read when I have to), std.all = . -0.249
+2) enjoy_r4 (I think reading is boring), std.all =  -0.640
+
+Let's recode them to ensure accurate measurement and interpetation:
+
+```{r}
+pirls$enjoy_r1r <- car::recode(pirls$enjoy_r1, '1=4;2=3;3=2;4=1')
+pirls$enjoy_r4r <- car::recode(pirls$enjoy_r4, '1=4;2=3;3=2;4=1')
+
+model_motivation <- "
+internal_motivation =~ enjoy_r2 + enjoy_r1r + enjoy_r3 + enjoy_r4r + enjoy_r5 + enjoy_r6
+instrumental_motivation     =~ reason1 + reason2 + reason3 + reason4 + reason5 + reason6"
+
+fit_motivation_1 <- cfa(model_motivation, data=pirls, std.lv=TRUE, estimator="DWLS", verbose=TRUE) # Here another estimator is used as the data did not have normal distribution
+
+summary(fit_motivation_1, std=T, fit=T)
+```
+We can see the correlation between internal and instrumental motivation in the Estimates: 
+Covariances:
+                         Estimate  Std.Err  z-value  P(>|z|)   Std.lv  Std.all
+  internal_motivation ~~                                                      
+    instrmntl_mtvt          0.719    0.015   47.533    0.000    0.719    0.719
+    
+But let's check it additionally:
+
+```{r}
+correlation <- parameterEstimates(fit_motivation_1)[parameterEstimates(fit_motivation_1)$op == "~~" & parameterEstimates(fit_motivation_1)$lhs == "internal_motivation" & parameterEstimates(fit_motivation_1)$rhs == "instrumental_motivation", "est"]
+
+correlation
+
+# parameterEstimates(fit_motivation_1) another way to check it
+```
+
+As we can see, the correlation is 0.719. 
+
+# 2. Model testing
+
+```{r}
+
+fitmeasures(fit_motivation_1)
+fitmeasures(fit_motivation_1, c('CFI','TLI','RMSEA','SRMR'))
+```
+We have received these indices:   
+cfi   tli rmsea  srmr 
+0.979 0.974 0.034 0.040 
+
+We can see that the model is already quite good with CFI > 0.9, TLI > 0.9, RMSEA and SRMR are quite small. 
+
+As for 90% confidence interval of RMSEA, it is equal to 0.030-0.038.
+
+Finally, t's check chi_square of the original model.
+
+```{r}
+chi_square_original <- fitMeasures(fit_motivation_1)["chisq"] 
+chi_square_original
+```
+
+#3. Model improvement
+
+```{r}
+modindices(fit_motivation_1, standardized = T, sort. = T)
+
+# Modify the model based on modification indices
+# Add:
+# 1) instrumental_motivation	=~	enjoy_r1r (I only read when I have to), this is the biggest crossloading
+
+model_motivation_2 <- "
+internal_motivation =~ enjoy_r2 + enjoy_r1r + enjoy_r3 + enjoy_r4r + enjoy_r5 + enjoy_r6
+instrumental_motivation     =~ reason1 + reason2 + reason3 + reason4 + reason5 + reason6
+instrumental_motivation	=~	enjoy_r1r
+"
+
+fit_motivation_2 <- cfa(model_motivation_2, data=pirls, std.lv=TRUE, estimator="DWLS", verbose=TRUE) 
+
+summary(fit_motivation_2, std=T, fit=T)
+fitmeasures(fit_motivation_2, c('CFI','TLI','rmsea','srmr'))
+```
+We can see that the model is even better: 
+Old version. 
+cfi   tli rmsea  srmr 
+0.979 0.974 0.034 0.040 
+
+New version: 
+cfi   tli rmsea  srmr 
+0.985 0.980 0.029 0.038
+
+Now let's check chi_square:
+```{r}
+chi_square_second <- fitMeasures(fit_motivation_2)["chisq"] 
+chi_square_second
+chi_square_difference = chi_square_original - chi_square_second
+chi_square_difference
+```
+```{r}
+modindices(fit_motivation_2, standardized = T, sort. = T)
+# Modify the model based on modification indices
+# Add:
+# 2) instrumental_motivation	=~	enjoy_r2 (I like to talk to other people about books), this is the next change
+
+model_motivation_3 <- "
+internal_motivation =~ enjoy_r2 + enjoy_r1r + enjoy_r3 + enjoy_r4r + enjoy_r5 + enjoy_r6
+instrumental_motivation     =~ reason1 + reason2 + reason3 + reason4 + reason5 + reason6
+instrumental_motivation	=~	enjoy_r1r
+instrumental_motivation	=~	enjoy_r2 
+"
+
+fit_motivation_3 <- cfa(model_motivation_3, data=pirls, std.lv=TRUE, estimator="DWLS", verbose=TRUE) 
+
+summary(fit_motivation_3, std=T, fit=T)
+fitmeasures(fit_motivation_3, c('CFI','TLI','rmsea','srmr'))
+
+```
+The model is even better. 
+
+Old version: 
+cfi   tli rmsea  srmr 
+0.985 0.980 0.029 0.038
+New version: 
+  cfi   tli rmsea  srmr 
+0.989 0.985 0.025 0.035 
+
+# 4. The plot 
+```{r}
+# option 1 
+lavaanPlot(model = fit_motivation_3, graph_options = list(rankdir = "LR"), coefs = TRUE, covs = TRUE, stand = TRUE)
+```
+```{r}
+# option 2
+lavaanPlot(model = fit_motivation_3, node_options = list(shape = "box", fontname = "Helvetica"), 
+           edge_options = list(color = "grey"), coefs = TRUE, stand = FALSE, sig = 1.00, covs =TRUE)
+```
